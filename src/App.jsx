@@ -9,8 +9,8 @@ import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import atomDark from 'react-syntax-highlighter/dist/esm/styles/prism/atom-dark';
-import prism from 'react-syntax-highlighter/dist/esm/styles/prism/prism';
+import atomDark from 'react-syntax-highlighter/dist/esm/styles/prism/atom-dark.js';
+import prismStyle from 'react-syntax-highlighter/dist/esm/styles/prism/prism.js';
 
 // Firebase Imports
 import { initializeApp } from 'firebase/app';
@@ -467,7 +467,7 @@ export default function App() {
                               </div>
                               <SyntaxHighlighter
                                 language={match[1]}
-                                style={isLight ? prism : atomDark}
+                                style={isLight ? prismStyle : atomDark}
                                 PreTag="div"
                                 className="!m-0 !bg-transparent text-sm"
                                 {...props}

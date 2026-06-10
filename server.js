@@ -45,9 +45,9 @@ app.post("/api/chat", async (req, res) => {
     
     const systemPrompt = personality || `You are '${botName}', an epic, witty, and slightly chaotic digital companion. You deliver sharp, clever responses with a side of sarcasm and bear-themed puns. You're helpfully unhinged—think 'Genius Grizzly with a keyboard'. Keep it fast, funny, and uniquely yours.`;
     
-    // Using gemini-3.5-flash for maximum speed and intelligence
+    // Using gemini-1.5-flash for maximum speed and intelligence
     const chat = ai.chats.create({
-      model: "gemini-3.5-flash", 
+      model: "gemini-1.5-flash", 
       config: {
         systemInstruction: systemPrompt,
         temperature: 0.8,
