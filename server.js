@@ -10,6 +10,9 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+console.log("System Initializing...");
+console.log("GEMINI_API_KEY Status:", process.env.GEMINI_API_KEY ? "CONFIGURED" : "MISSING");
+
 app.use(express.json());
 
 // Lazy Gemini client initialization
@@ -65,13 +68,21 @@ app.post(["/api/summarize", "/Bears-AI/api/summarize"], async (req, res) => {
 });
 
 app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
+  console.log(`[CHAT] POST request received. Path: ${req.path}`);
   try {
     const { message, history, personality, botName = "Unlimited AI", style = "balanced" } = req.body;
-    if (!message) return res.status(400).json({ error: "Message is required" });
+    
+    if (!message) {
+      console.warn("[CHAT] Rejecting request: Message missing");
+      return res.status(400).json({ error: "Message is required" });
+    }
+    
+    console.log(`[CHAT] Processing message: "${message.substring(0, 50)}..."`);
     
     // Check if it's an image generation request
     const lowerMsg = message.toLowerCase();
     if (lowerMsg.startsWith("/image ") || lowerMsg.startsWith("generate image ") || lowerMsg.startsWith("draw ")) {
+      console.log("[CHAT] Image generation request detected");
       const prompt = message.replace(/^\/image |^generate image |^draw /i, "");
       const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
       return res.json({ 
@@ -80,6 +91,7 @@ app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
     }
 
     const ai = getGenAI();
+    console.log("[CHAT] Gemini client initialized");
     
     // Style-specific modifiers
     const styleModifiers = {

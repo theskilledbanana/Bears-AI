@@ -316,22 +316,31 @@ function AppContent() {
         signal: abortControllerRef.current.signal
       });
 
-      console.log("Intelligence Sync Status:", response.status);
+      console.log(`Neural Sync Response - Status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
-        let errorMsg = "Something went wrong sending your message. Please try again.";
+        let errorData = null;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          console.warn("Failed to parse error response JSON");
+        }
+
+        let errorMsg = errorData?.error || "Something went wrong sending your message. Please try again.";
+        
         if (response.status === 429) {
           errorMsg = "Too many requests. Please wait and try again.";
         } else if (response.status === 401 || response.status === 403) {
-          errorMsg = "AI service is not configured. Missing API key.";
-        } else if (response.status === 500) {
-          errorMsg = "Server error. Our intelligence nodes are recalibrating.";
+          errorMsg = "AI service is not configured. Missing or invalid API key.";
+        } else if (response.status === 500 && !errorData?.error) {
+          errorMsg = "Internal Server Error. Please check terminal logs.";
         }
+        
         throw new Error(errorMsg);
       }
 
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      console.log("Response data received successfully");
 
       const aiMessage = {
         role: "model",
@@ -416,7 +425,7 @@ function AppContent() {
     };
     const newMsgs = [...messages, userMessage];
     updateChatMessages(activeChatId, newMsgs);
-    fetchAIResponse(s, newMsgs);
+    fetchAIResponse(s, messages);
   };
 
   const regenerate = () => {
@@ -424,8 +433,9 @@ function AppContent() {
     if (lastUserIndex !== -1) {
       const lastUserMsg = messages[lastUserIndex];
       const newMessages = messages.slice(0, lastUserIndex + 1);
+      const historyForAI = messages.slice(0, lastUserIndex);
       updateChatMessages(activeChatId, newMessages);
-      fetchAIResponse(lastUserMsg.text, newMessages);
+      fetchAIResponse(lastUserMsg.text, historyForAI);
     }
   };
 
@@ -443,11 +453,12 @@ function AppContent() {
     if (msgIndex === -1) return;
 
     const newMessages = messages.slice(0, msgIndex + 1);
+    const historyForAI = messages.slice(0, msgIndex);
     newMessages[msgIndex] = { ...newMessages[msgIndex], text: editInput };
     
     updateChatMessages(activeChatId, newMessages);
     setEditingId(null);
-    fetchAIResponse(editInput, newMessages.slice(0, -1));
+    fetchAIResponse(editInput, historyForAI);
   };
 
   const handleSubmit = (e) => {
@@ -478,6 +489,7 @@ function AppContent() {
     };
     
     const textToSend = input.trim();
+    console.log(`Sending message: "${textToSend}" to chat ${currentChatId}`);
     setInput("");
     
     setChats(prev => prev.map(c => {
@@ -494,7 +506,7 @@ function AppContent() {
     }));
 
     // Use a small timeout to ensure state has settled and scroll happened
-    setTimeout(() => fetchAIResponse(textToSend, [...messages, userMessage]), 10);
+    setTimeout(() => fetchAIResponse(textToSend, messages), 10);
   };
 
   const clearMemory = () => {
