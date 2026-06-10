@@ -60,7 +60,7 @@ const SUGGESTIONS = [
   "How to build a ChatGPT clone?"
 ];
 
-const BOT_AVATAR = "/Bear-s-AI/favicon.png";
+const BOT_AVATAR = "/Bears-AI/favicon.png";
 
 const markdownComponents = {
   code({ node, inline, className, children, ...props }) {

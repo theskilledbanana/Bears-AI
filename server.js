@@ -33,7 +33,7 @@ function getGenAI() {
 // Redirect root to the base path for development convenience
 app.get("/", (req, res) => {
   if (process.env.NODE_ENV !== "production") {
-    res.redirect("/Bear-s-AI/");
+    res.redirect("/Bears-AI/");
   } else {
     // Falls through to static serving
     res.sendFile(path.join(process.cwd(), "dist", "index.html"));
@@ -41,7 +41,7 @@ app.get("/", (req, res) => {
 });
 
 // API Routes FIRST - Handle both root and subpath for flexibility
-app.post(["/api/chat", "/Bear-s-AI/api/chat"], async (req, res) => {
+app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
   try {
     const { message, history, personality, botName = "Unlimited AI", style = "balanced" } = req.body;
     if (!message) return res.status(400).json({ error: "Message is required" });
