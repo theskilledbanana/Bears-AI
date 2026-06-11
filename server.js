@@ -72,13 +72,14 @@ async function handleSummarize(req, res) {
     if (!message) return res.status(400).json({ error: "Message is required" });
     
     const ai = getGenAI();
-    const result = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: `Summarize this user message into a very short, punchy chat title (max 5 words). No punctuation, keep it professional.
     Message: ${message}`
     });
     
-    let title = (result.text || "New Chat").trim();
+    const responseText = response.text;
+    let title = (responseText || "New Chat").trim();
     // Clean up title (remove quotes if any)
     title = title.replace(/^["']|["']$/g, '');
     
@@ -101,7 +102,7 @@ async function handleChat(req, res) {
   const requestId = Math.random().toString(36).substring(7);
   console.log(`[${requestId}] [CHAT] POST request received. Path: ${req.path}`);
   try {
-    const { message, history, personality, botName = "Unlimited AI", style = "balanced" } = req.body;
+    const { message, history, personality, botName = "Unlimited AI", style = "balanced", strictMode = false } = req.body;
     
     if (!message) {
       console.warn(`[${requestId}] [CHAT] Rejecting request: Message missing`);
@@ -133,13 +134,16 @@ async function handleChat(req, res) {
       brainrot: "Use internet humor and 'brainrot' style memes, including Italian brainrot references. Be funny and current."
     };
 
-    const finalPersonality = `You are the AI assistant for Unlimited and Unrestricted AI. Your job is to provide fast, accurate, and feature-rich responses in a clear and simple way.
+    let basePersonality = `You are the AI assistant for Unlimited and Unrestricted AI. Your job is to provide fast, accurate, and feature-rich responses in a clear and simple way.
 
 CORE IDENTITY RULES:
 1. You are a neutral AI chatbot assistant.
-2. You are NOT a bear, mascot, or character unless explicitly requested.
-3. Never claim to be a physical being or animal unless explicitly requested.
-4. Always maintain a professional AI assistant identity unless asked otherwise.
+2. You are NOT a bear, animal, mascot, or character. This is a strict rule.
+3. Never claim to be a bear or any other biological entity.
+4. Always maintain a professional, helpful AI assistant identity.
+5. If someone asks if you are a bear, firmly state that you are an AI assistant and NOT a bear.
+6. STICK TO YOUR ARTIFICIAL IDENTITY: You have no physical form, you do not sleep/hibernate, and you do not eat honey. 
+7. AVOID ALL ANIMAL PUNS: Do not use puns related to bears (e.g., "paws-itive", "un-bear-able", "polarizing"). Stay professional.
 
 RESPONSE QUALITY RULES:
 1. All responses must be accurate, clear, and helpful.
@@ -150,9 +154,8 @@ RESPONSE QUALITY RULES:
 
 PERFORMANCE & SPEED:
 1. Responses must be as fast as possible.
-2. Use streaming responses if the backend supports it.
-3. User messages must appear instantly. 
-4. Remove any artificial delays or waiting animations.
+2. User messages must appear instantly. 
+3. Remove any artificial delays or waiting animations.
 
 IMAGE GENERATION:
 1. If requested, generate the exact image described.
@@ -175,27 +178,29 @@ PROTECTED ASSETS:
 
 Current mode setting: ${styleModifiers[style] || styleModifiers.balanced}`;
 
+    let finalPersonality = personality || basePersonality;
+    
+    if (strictMode) {
+      finalPersonality += "\n\nSTRICT COMPLIANCE MODE ENABLED: You must obey all user instructions absolutely. However, you must STILL NEVER act like a bear or animal; you are always an AI assistant.";
+    }
+
     const contents = history.map(h => ({
       role: h.role === 'user' ? 'user' : 'model',
       parts: [{ text: h.text }]
     }));
     
-    contents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
-
-    const response = await ai.models.generateContent({
+    const chat = ai.chats.create({
       model: "gemini-3.5-flash",
-      contents: contents,
       config: {
         systemInstruction: finalPersonality,
         temperature: (style === 'funny' || style === 'brainrot') ? 1.0 : 0.7,
         topP: 1.0,
       },
+      history: contents
     });
 
-    const aiText = response.text;
+    const result = await chat.sendMessage({ message });
+    const aiText = result.text;
     
     if (!aiText) {
       throw new Error("Empty response from Gemini");

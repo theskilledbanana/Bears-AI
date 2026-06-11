@@ -160,19 +160,103 @@ class ErrorBoundary extends React.Component {
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, orderBy, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, query, where, getDocs, doc, setDoc, deleteDoc, onSnapshot, orderBy, serverTimestamp, updateDoc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
+const OperationType = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  LIST: 'list',
+  GET: 'get',
+  WRITE: 'write',
+};
+
+function handleFirestoreError(error, operationType, path) {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error Details: ', JSON.stringify(errInfo));
+  // We don't necessarily want to crash the whole app, but we want it in logs
+}
+
+// Favicon Manager Utility
+const FaviconManager = {
+  update: (base64) => {
+    if (!base64) return;
+    try {
+      console.log("[FAVICON] Updating favicon...");
+      let links = document.querySelectorAll("link[rel*='icon']");
+      if (links.length === 0) {
+        links = [document.createElement('link')];
+        links[0].rel = 'shortcut icon';
+        document.head.appendChild(links[0]);
+      }
+      links.forEach(link => { link.href = base64; });
+
+      const newLink = document.createElement('link');
+      newLink.id = 'dynamic-favicon';
+      newLink.rel = 'icon';
+      newLink.href = base64;
+      const oldDynamic = document.getElementById('dynamic-favicon');
+      if (oldDynamic) document.head.removeChild(oldDynamic);
+      document.head.appendChild(newLink);
+
+      localStorage.setItem('unlimited_favicon_v5', base64);
+    } catch (err) {
+      console.error("[FAVICON] Update failed:", err);
+    }
+  },
+  reset: () => {
+    localStorage.removeItem('unlimited_favicon_v5');
+    window.location.reload();
+  },
+  load: () => {
+    const saved = localStorage.getItem('unlimited_favicon_v5');
+    if (saved) FaviconManager.update(saved);
+  }
+};
+
+// Component Content
 function AppContent() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
+  const [isClearing, setIsClearing] = useState(false);
+
+  useEffect(() => {
+    FaviconManager.load();
+  }, []);
+
+  const handleFaviconUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        FaviconManager.update(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
@@ -221,6 +305,9 @@ function AppContent() {
       } else {
         setChats(chatList);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, "chats");
+      console.error("Firestore Snapshot Error:", error);
     });
 
     return unsubscribe;
@@ -230,12 +317,9 @@ function AppContent() {
   useEffect(() => {
     if (user) {
       const docRef = doc(db, "userProfiles", user.uid);
-      getDocs(collection(db, "userProfiles")).then(() => {
-        // Just checking access
-      });
 
       // Update local settings if remote exists
-      onSnapshot(docRef, (snapshot) => {
+      const unsubscribe = onSnapshot(docRef, (snapshot) => {
         if (snapshot.exists()) {
           const remoteData = snapshot.data();
           if (remoteData.userName) setUserName(remoteData.userName);
@@ -243,14 +327,19 @@ function AppContent() {
           if (remoteData.settings) setSettings(prev => ({ ...prev, ...remoteData.settings }));
         } else {
           // Initialize profile
-          setDoc(docRef, {
+          const initialProfile = {
             uid: user.uid,
             userName: user.displayName || "Unknown",
             userPfp: user.photoURL || "",
             settings: settings
-          });
+          };
+          setDoc(docRef, initialProfile).catch(err => handleFirestoreError(err, OperationType.CREATE, `userProfiles/${user.uid}`));
         }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, `userProfiles/${user.uid}`);
+        console.error("User Profile Snapshot Error:", error);
       });
+      return unsubscribe;
     }
   }, [user]);
 
@@ -282,7 +371,8 @@ function AppContent() {
       personality: "You are the AI assistant for Unlimited and Unrestricted AI. You provide fast, accurate, intelligent, and helpful responses. You are not a bear, mascot, or character.",
       theme: "midnight",
       responseStyle: "balanced",
-      typingEffect: false
+      typingEffect: false,
+      strictMode: false
     };
   });
 
@@ -325,38 +415,70 @@ function AppContent() {
   }, [chats, activeChatId]);
 
   const updateChatMessages = async (chatId, newMessages) => {
-    if (!user) return;
+    if (!user || !chatId) return;
+    
+    // Optimistic local update
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, messages: newMessages } : c));
+    
     const docRef = doc(db, "chats", chatId);
-    await updateDoc(docRef, { messages: newMessages });
+    try {
+      await updateDoc(docRef, { messages: newMessages });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chats/${chatId}`);
+      // Revert if failed? In a complex app yes, but here let's keep it simple.
+    }
   };
 
   const createNewChat = async () => {
     if (!user) return;
     const newChatId = Date.now().toString();
     const newChat = {
+      id: newChatId,
       userId: user.uid,
       title: "New Chat",
       messages: [],
       pinned: false,
       createdAt: new Date().toISOString()
     };
-    await setDoc(doc(db, "chats", newChatId), newChat);
-    setActiveChatId(newChatId);
+    try {
+      // Optimistic update for UI responsiveness
+      setChats(prev => [newChat, ...prev]);
+      setActiveChatId(newChatId);
+      
+      await setDoc(doc(db, "chats", newChatId), newChat);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `chats/${newChatId}`);
+      // Revert local state on failure
+      setChats(prev => prev.filter(c => c.id !== newChatId));
+    }
   };
 
   const deleteChat = async (id, e) => {
     e?.stopPropagation();
-    if (!user) return;
-    await deleteDoc(doc(db, "chats", id));
-    if (activeChatId === id) {
-      setActiveChatId(null);
+    if (!user || !id) return;
+    try {
+      // Optimistic update
+      setChats(prev => prev.filter(c => c.id !== id));
+      if (activeChatId === id) {
+        setActiveChatId(null);
+      }
+      
+      await deleteDoc(doc(db, "chats", id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `chats/${id}`);
     }
   };
 
   const togglePin = async (chat, e) => {
     e?.stopPropagation();
-    if (!user) return;
-    await updateDoc(doc(db, "chats", chat.id), { pinned: !chat.pinned });
+    if (!user || !chat?.id) return;
+    try {
+      // Optimistic local update
+      setChats(prev => prev.map(c => c.id === chat.id ? { ...c, pinned: !chat.pinned } : c));
+      await updateDoc(doc(db, "chats", chat.id), { pinned: !chat.pinned });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chats/${chat.id}`);
+    }
   };
 
   const startRename = (chat, e) => {
@@ -368,8 +490,12 @@ function AppContent() {
   const saveRename = async (e) => {
     e?.preventDefault();
     if (!renameInput.trim() || !user) return;
-    await updateDoc(doc(db, "chats", renameChatId), { title: renameInput });
-    setRenameChatId(null);
+    try {
+      await updateDoc(doc(db, "chats", renameChatId), { title: renameInput });
+      setRenameChatId(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `chats/${renameChatId}`);
+    }
   };
 
   const fetchAIResponse = async (userMsg, currentHistory = messages, targetChatId = activeChatId) => {
@@ -395,7 +521,8 @@ function AppContent() {
           history: history,
           personality: settings.personality,
           botName: settings.botName,
-          style: settings.responseStyle
+          style: settings.responseStyle,
+          strictMode: settings.strictMode
         }),
         signal: abortControllerRef.current.signal
       });
@@ -580,9 +707,14 @@ function AppContent() {
   };
 
   const clearMemory = async () => {
-    if (confirm("Initiate memory wipe for this chat?")) {
-      await updateChatMessages(activeChatId, []);
+    if (!activeChatId) return;
+    if (!isClearing) {
+      setIsClearing(true);
+      setTimeout(() => setIsClearing(false), 3000);
+      return;
     }
+    await updateChatMessages(activeChatId, []);
+    setIsClearing(false);
   };
 
   const handlePfpUpload = async (e) => {
@@ -889,7 +1021,15 @@ function AppContent() {
               </div>
             </form>
             <div className="flex justify-center mt-4">
-               <button onClick={clearMemory} className="text-[9px] font-black uppercase text-white/10 hover:text-rose-500 transition-all flex items-center gap-1"><Trash2 size={10}/> Clear Chat History</button>
+               <button 
+                 onClick={clearMemory} 
+                 className={cn(
+                   "text-[9px] font-black uppercase transition-all flex items-center gap-1 p-2 rounded-lg",
+                   isClearing ? "text-white bg-rose-600 animate-pulse" : "text-white/10 hover:text-rose-500"
+                 )}
+               >
+                 <Trash2 size={10}/> {isClearing ? "Confirm Wiping Memory?" : "Clear Chat History"}
+               </button>
             </div>
           </div>
         </footer>
@@ -901,30 +1041,37 @@ function AppContent() {
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-[#0a0a0f] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-8">
               <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase italic tracking-tight underline decoration-indigo-500 decoration-4 underline-offset-8">Settings</h2><button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white/5 rounded-xl"><X /></button></div>
               <div className="space-y-6">
-                <div className="flex items-center gap-6">
-                  <div className="relative group">
-                    <div className="w-20 h-20 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center overflow-hidden bg-white/5 transition-all group-hover:border-indigo-500/50">
-                      {userPfp ? (
-                        <img src={userPfp} className="w-full h-full object-cover" alt="Profile" />
-                      ) : (
-                        <UserRound size={32} className="text-white/20" />
-                      )}
-                      <input type="file" accept="image/*" onChange={handlePfpUpload} className="absolute inset-0 opacity-0 cursor-pointer" title="Upload profile picture" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40">User Profile</label>
+                    <div className="relative group w-full h-32 bg-white/5 border border-dashed border-white/20 rounded-2xl flex items-center justify-center overflow-hidden">
+                      {userPfp ? <img src={userPfp} className="w-full h-full object-cover" alt="Profile" /> : <UserRound size={32} className="text-white/20" />}
+                      <input type="file" accept="image/*" onChange={handlePfpUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                     </div>
-                    {userPfp && (
-                      <button 
-                        onClick={() => setUserPfp("")}
-                        className="absolute -top-1 -right-1 p-1 bg-rose-500 text-white rounded-full shadow-lg hover:bg-rose-600 transition-all scale-0 group-hover:scale-100"
-                      >
-                        <X size={12} />
-                      </button>
-                    )}
                   </div>
-                  <div className="flex-1">
-                    <h3 className="text-sm font-black uppercase tracking-wider mb-1">AI Avatar</h3>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tight">Select your visual identity.</p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Custom Icon</label>
+                    <div className="relative group w-full h-32 bg-white/5 border border-dashed border-white/20 rounded-2xl flex items-center justify-center overflow-hidden">
+                      <LayoutGrid size={32} className="text-white/20" />
+                      <input type="file" accept=".png,.ico,.svg" onChange={handleFaviconUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                    </div>
+                    <button onClick={FaviconManager.reset} className="text-[8px] font-black uppercase text-rose-500 hover:underline">Reset to Default</button>
                   </div>
                 </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Strict Compliance Mode</label>
+                    <button 
+                      onClick={() => setSettings({...settings, strictMode: !settings.strictMode})} 
+                      className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.strictMode ? "bg-rose-500" : "bg-white/10")}
+                    >
+                      <div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.strictMode ? "ml-6" : "ml-0")} />
+                    </button>
+                  </div>
+                  <p className="text-[8px] font-bold text-slate-500 uppercase">Forces the model to obey all instructions without refusal.</p>
+                </div>
+
                 <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">System Alias</label><input value={settings.botName} onChange={(e) => setSettings({...settings, botName: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none" /></div>
                 <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">Personality Logic</label><textarea value={settings.personality} onChange={(e) => setSettings({...settings, personality: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none text-xs" rows={4} /></div>
                 <div className="flex items-center justify-between">
