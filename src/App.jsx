@@ -524,7 +524,7 @@ function AppContent() {
     setIsLoading(true);
 
     try {
-      console.log(`[4] Fetching from API: /api/chat`);
+      console.log(`[4] Fetching from API: ${import.meta.env.BASE_URL}api/chat`);
       console.log("[5] Payload message:", userMsg);
       
       const history = currentHistory.slice(-15).map(msg => ({
@@ -532,7 +532,7 @@ function AppContent() {
         text: msg.text
       }));
 
-      const response = await fetch("/api/chat", {
+      const response = await fetch(`${import.meta.env.BASE_URL}api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -591,7 +591,7 @@ function AppContent() {
       // Trigger auto-titling if it's the first exchange (user message + AI message)
       if (currentHistory.length === 1) {
         console.log("[8] Triggering auto-titling...");
-        fetch("/api/summarize", {
+        fetch(`${import.meta.env.BASE_URL}api/summarize`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: userMsg })

@@ -61,7 +61,7 @@ app.post("/api/summarize", async (req, res) => {
   await handleSummarize(req, res);
 });
 
-app.post("/Unlimited-AI/api/summarize", async (req, res) => {
+app.post("/Bears-AI/api/summarize", async (req, res) => {
   await handleSummarize(req, res);
 });
 
@@ -94,7 +94,7 @@ app.post("/api/chat", async (req, res) => {
   await handleChat(req, res);
 });
 
-app.post("/Unlimited-AI/api/chat", async (req, res) => {
+app.post("/Bears-AI/api/chat", async (req, res) => {
   await handleChat(req, res);
 });
 
@@ -232,7 +232,7 @@ app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
-app.all("/Unlimited-AI/api/*", (req, res) => {
+app.all("/Bears-AI/api/*", (req, res) => {
   res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
