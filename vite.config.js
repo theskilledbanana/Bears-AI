@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(() => {
   return {
-    base: "/Vault_Portal_AI/",
+    base: '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

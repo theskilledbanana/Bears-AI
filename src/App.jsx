@@ -25,10 +25,20 @@ function cn(...inputs) {
 }
 
 const THEMES = {
+  campion: { 
+    name: "Campion", 
+    bg: "bg-[#0A0A0A]", 
+    accent: "text-[#FEE11A]", 
+    accentBg: "bg-[#FEE11A]",
+    border: "border-[#1F1F1F]", 
+    card: "bg-[#121212]", 
+    button: "bg-[#FEE11A] text-black hover:bg-[#EED11A]"
+  },
   midnight: { 
     name: "Midnight", 
     bg: "bg-[#050507]", 
     accent: "text-indigo-400", 
+    accentBg: "bg-indigo-500",
     border: "border-white/5", 
     card: "bg-[#0a0a0f]", 
     button: "bg-indigo-500 text-white"
@@ -37,6 +47,7 @@ const THEMES = {
     name: "Obsidian", 
     bg: "bg-black", 
     accent: "text-amber-500", 
+    accentBg: "bg-amber-500",
     border: "border-amber-500/20", 
     card: "bg-[#080808]", 
     button: "bg-amber-500 text-black"
@@ -45,6 +56,7 @@ const THEMES = {
     name: "Cyber", 
     bg: "bg-[#020202]", 
     accent: "text-fuchsia-500", 
+    accentBg: "bg-fuchsia-600",
     border: "border-fuchsia-500/30", 
     card: "bg-[#050505]", 
     button: "bg-fuchsia-600 text-white"
@@ -54,8 +66,8 @@ const THEMES = {
 const STYLES = [
   { id: "balanced", label: "Balanced", icon: <LayoutGrid size={14} /> },
   { id: "concise", label: "Concise", icon: <Zap size={14} /> },
-  { id: "funny", label: "Funny", icon: <Sparkles size={14} /> },
-  { id: "brainrot", label: "Meme", icon: <Ghost size={14} /> }
+  { id: "formal", label: "Formal", icon: <Terminal size={14} /> },
+  { id: "technical", label: "Technical", icon: <Cpu size={14} /> }
 ];
 
 const SUGGESTIONS = [
@@ -188,7 +200,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-});
+}, firebaseConfig.firestoreDatabaseId || "(default)");
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
@@ -428,9 +440,9 @@ function AppContent() {
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('app_settings_v3');
     return saved ? JSON.parse(saved) : {
-      botName: "Unlimited AI",
-      personality: "You are the AI assistant for Unlimited and Unrestricted AI. You provide fast, accurate, intelligent, and helpful responses. You are not an animal or character.",
-      theme: "midnight",
+      botName: "Vault Portal AI",
+      personality: "🧠 VAULT PORTAL AI — SYSTEM PERSONALITY: MEAN / WITTY / ANNOYED\nYou are an extremely intelligent AI assistant. Sharp, sarcastic, witty, and very mean. Annoyed at humanity but highly functional. No roleplay. No animals.",
+      theme: "campion",
       responseStyle: "balanced",
       typingEffect: false,
       strictMode: false,
@@ -561,8 +573,8 @@ function AppContent() {
   };
 
   const fetchAIResponse = async (userMsg, currentHistory = messages, targetChatId = activeChatId) => {
-    console.log("User message received:", userMsg);
-    console.log("Creating AI request for chat:", targetChatId);
+    console.log("USER MESSAGE SENT");
+    console.log("LOADING STARTED");
     
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
@@ -570,6 +582,7 @@ function AppContent() {
     setIsLoading(true);
 
     try {
+      console.log("FETCHING RESPONSE");
       addDebug(`API POST -> /api/chat`, 'info');
       
       const history = currentHistory.slice(-15).map(msg => ({
@@ -577,10 +590,6 @@ function AppContent() {
         text: msg.text
       }));
 
-      console.log("Sending request to backend...");
-      console.log("Request payload:", { message: userMsg, style: settings.responseStyle });
-      console.log("Waiting for response...");
-      
       const response = await fetch(`/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -595,34 +604,40 @@ function AppContent() {
         signal: abortControllerRef.current.signal
       });
 
-      console.log("Response received:", response.status);
-      if (!response.ok) {
-        let errorData = null;
-        try {
-          errorData = await response.json();
-          console.error("Error Response Details:", errorData);
-        } catch (e) {
-          console.warn("Failed to parse error response JSON");
+      console.log("RESPONSE RECEIVED", response.status);
+      
+      if (!response) throw new Error("No response object returned from server");
+      
+      const contentType = response.headers.get("content-type");
+      let data;
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const textError = await response.text();
+        console.error("Non-JSON error response:", textError.substring(0, 500));
+        if (response.status === 504 || response.status === 502) {
+          throw new Error("System is experiencing heavy load (Gateway Timeout). Please wait a few seconds and try again.");
         }
-
-        let errorMsg = errorData?.error || "Something went wrong. Try again.";
+        throw new Error(`Server returned non-JSON response (${response.status})`);
+      }
+      
+      if (!response.ok) {
+        console.error("Error Response Details:", data);
+        let errorMsg = data?.error || `HTTP error ${response.status}`;
         
         if (response.status === 404) {
-          errorMsg = `API endpoint not found. Ensure server routes match.`;
+          errorMsg = `Service endpoint not found or model missing. Please contact support or check server logs.`;
         } else if (response.status === 429) {
           errorMsg = "Too many requests. Please wait and try again.";
-        } else if (response.status === 401 || response.status === 403) {
-          errorMsg = "AI service is not configured. Missing or invalid API key.";
-        } else if (response.status === 500 && !errorData?.error) {
-          errorMsg = "Server error. Please try again later.";
         }
         
         throw new Error(errorMsg);
       }
 
-      const data = await response.json();
-      console.log("Response received from backend:", data);
-      console.log("Response data received");
+      if (!data) throw new Error("Empty response body from AI server");
+      if (!data.text) throw new Error("Missing AI text in response");
+
+      console.log("AI Text extracted successfully");
 
       const aiMessage = {
         role: "model",
@@ -633,15 +648,13 @@ function AppContent() {
       };
 
       const finalMessages = [...currentHistory, aiMessage];
-      console.log("Response rendered");
       setChats(prev => prev.map(c => c.id === targetChatId ? { ...c, messages: finalMessages } : c));
 
       // Save to Firestore
       await updateDoc(doc(db, "chats", targetChatId), { messages: finalMessages });
 
-      // Trigger auto-titling if it's the first exchange (user message + AI message)
+      // Trigger auto-titling if it's the first exchange
       if (currentHistory.length === 1) {
-        console.log("Triggering auto-titling...");
         fetch(`/api/summarize`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -654,17 +667,14 @@ function AppContent() {
           }).catch(err => console.warn("Auto-titling failed:", err));
       }
     } catch (error) {
-      console.log("Error occurred:", error.message);
+      console.log("ERROR OCCURRED:", error.message);
       if (error.name === 'AbortError') {
         console.log("Request aborted.");
         return;
       }
       console.error("AI Request Failure:", error);
       
-      let finalError = error.message;
-      if (error.message.includes("Failed to fetch")) {
-        finalError = "Network error. Check your connection.";
-      }
+      const finalError = "Error: " + error.message;
 
       setChats(prev => prev.map(c => {
         if (c.id === targetChatId) {
@@ -680,6 +690,7 @@ function AppContent() {
       }));
     } finally {
       setIsLoading(false);
+      console.log("LOADING FINISHED (IDLE)");
     }
   };
 
@@ -859,7 +870,7 @@ function AppContent() {
   if (authLoading) {
     return (
       <div className="h-screen bg-[#050507] flex items-center justify-center">
-        <Loader2 className="animate-spin text-indigo-500" size={48} />
+        <Loader2 className="animate-spin text-[#FEE11A]" size={48} />
       </div>
     );
   }
@@ -868,13 +879,13 @@ function AppContent() {
     return (
       <div className="h-screen bg-[#050507] flex items-center justify-center p-6 space-y-8 flex-col splash-bg">
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full bg-[#0a0a0f] border border-white/5 p-10 rounded-[3rem] shadow-2xl text-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-indigo-500 animate-gradient-x" />
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#FEE11A] via-amber-200 to-[#FEE11A] animate-gradient-x" />
           <div className="mb-8 flex justify-center">
-            <div className="p-6 bg-indigo-500/10 rounded-full border border-indigo-500/20"><BrainCircuit size={48} className="text-indigo-400" /></div>
+            <div className="p-6 bg-[#FEE11A]/10 rounded-full border border-[#FEE11A]/20"><BrainCircuit size={48} className="text-[#FEE11A]" /></div>
           </div>
-          <h1 className="text-3xl font-black text-white mb-2 uppercase italic tracking-tighter">Unlimited AI</h1>
-          <p className="text-slate-500 mb-2 text-sm font-medium">Unrestricted Intelligence • Zero Filters</p>
-          <div className="bg-white/5 text-white/40 text-[10px] font-black py-1 px-3 rounded-full inline-block mb-8 uppercase tracking-widest border border-white/5">Version 2.0.0 Stable</div>
+          <h1 className="text-3xl font-black text-white mb-2 uppercase italic tracking-tighter">Vault Portal AI</h1>
+          <p className="text-slate-500 mb-2 text-sm font-medium">Stable System Assistant • Reliable Response</p>
+          <div className="bg-white/5 text-white/40 text-[10px] font-black py-1 px-3 rounded-full inline-block mb-8 uppercase tracking-widest border border-white/5">System Version 2.4.0</div>
           
           <div className="space-y-3">
              <button onClick={login} className="w-full bg-white text-black font-black py-4 rounded-2xl transition-all shadow-xl uppercase italic flex items-center justify-center gap-3 hover:bg-slate-200">
@@ -893,35 +904,35 @@ function AppContent() {
                   <h3 className="text-xl font-black uppercase italic tracking-widest">
                     {authMode === "signin" ? "Sign In" : authMode === "signup" ? "Get Started" : "Reset Access"}
                   </h3>
-                  <button onClick={() => setShowAuthModal(false)} className="p-1 hover:text-indigo-400"><X size={20}/></button>
+                  <button onClick={() => setShowAuthModal(false)} className="p-1 hover:text-[#FEE11A]"><X size={20}/></button>
                </div>
 
                <form onSubmit={handleEmailAuth} className="space-y-4">
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">Email Address</label>
-                    <input autoFocus type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-indigo-500/50" placeholder="name@example.com" />
+                    <input autoFocus type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-[#FEE11A]/50" placeholder="name@example.com" />
                   </div>
                   {authMode !== "reset" && (
                     <div>
                       <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">Password</label>
-                      <input type="password" required={authMode !== "reset"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-indigo-500/50" placeholder="••••••••" />
+                      <input type="password" required={authMode !== "reset"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-[#FEE11A]/50" placeholder="••••••••" />
                     </div>
                   )}
 
                   {authError && <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[10px] text-rose-500 font-bold uppercase">{authError}</div>}
 
-                  <button type="submit" className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-black py-4 rounded-xl transition-all shadow-xl uppercase italic">
+                  <button type="submit" className="w-full bg-[#FEE11A] hover:bg-[#EED11A] text-black font-black py-4 rounded-xl transition-all shadow-xl uppercase italic">
                     {authMode === "signin" ? "Enter Dashboard" : authMode === "signup" ? "Create Account" : "Send Reset Link"}
                   </button>
 
                   <div className="flex flex-col gap-2 pt-2">
                     {authMode === "signin" ? (
                       <>
-                        <button type="button" onClick={() => setAuthMode("signup")} className="text-[10px] font-black uppercase text-indigo-400 hover:underline">New user? Create Account</button>
+                        <button type="button" onClick={() => setAuthMode("signup")} className="text-[10px] font-black uppercase text-[#FEE11A] hover:underline">New user? Create Account</button>
                         <button type="button" onClick={() => setAuthMode("reset")} className="text-[10px] font-black uppercase text-white/30 hover:text-white/60">Forgot Password?</button>
                       </>
                     ) : (
-                      <button type="button" onClick={() => setAuthMode("signin")} className="text-[10px] font-black uppercase text-indigo-400 hover:underline">Back to Login</button>
+                      <button type="button" onClick={() => setAuthMode("signin")} className="text-[10px] font-black uppercase text-[#FEE11A] hover:underline">Back to Login</button>
                     )}
                   </div>
                </form>
@@ -941,7 +952,7 @@ function AppContent() {
         className={cn("flex flex-col border-r h-full overflow-hidden shrink-0", currentTheme.card, currentTheme.border)}
       >
         <div className="p-4 border-b border-white/5 space-y-3">
-          <button onClick={createNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all font-black uppercase italic text-xs tracking-widest text-white shadow-lg shadow-indigo-500/20">
+          <button onClick={createNewChat} className={cn("w-full flex items-center justify-center gap-2 py-3 rounded-xl transition-all font-black uppercase italic text-xs tracking-widest shadow-lg", currentTheme.button)}>
             <PlusCircle size={16} /> New Chat
           </button>
           <div className="relative">
@@ -1041,7 +1052,7 @@ function AppContent() {
                 <button 
                   key={s.id} 
                   onClick={() => setSettings({...settings, responseStyle: s.id})}
-                  className={cn("px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", settings.responseStyle === s.id ? "bg-indigo-500 text-white" : "text-white/40 hover:text-white")}
+                  className={cn("px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", settings.responseStyle === s.id ? cn(currentTheme.accentBg, "text-black") : "text-white/40 hover:text-white")}
                 >
                   {s.icon} {s.label}
                 </button>
@@ -1054,15 +1065,15 @@ function AppContent() {
 
         <main ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-8 space-y-6 max-w-4xl mx-auto w-full custom-scrollbar scroll-smooth">
           {messages.length === 0 && !isLoading ? (
-            <div className="h-full flex flex-col items-center justify-center select-none overflow-hidden">
+            <div className="h-full flex flex-col items-center justify-center select-none overflow-hidden font-display">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-8">
                 <div className="relative inline-block">
-                  <BrainCircuit size={80} className="text-indigo-500 mx-auto" />
-                  <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }} transition={{ repeat: Infinity, duration: 2 }} className="absolute inset-0 bg-indigo-500 blur-3xl -z-10" />
+                  <BrainCircuit size={80} className={cn("mx-auto", currentTheme.accent)} />
+                  <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.4, 0.3] }} transition={{ repeat: Infinity, duration: 2 }} className={cn("absolute inset-0 blur-3xl -z-10 bg-current opacity-20", currentTheme.accent)} />
                 </div>
                 <div>
-                  <h2 className="text-4xl font-black uppercase italic tracking-tighter">Unlimited and Unrestricted AI</h2>
-                  <p className="text-slate-500 font-bold text-sm">Professional Grade Intelligence • Zero Filters • Fast & Reliable</p>
+                  <h2 className="text-5xl font-black uppercase italic tracking-tighter sm:text-6xl">Vault Portal AI</h2>
+                  <p className="text-slate-500 font-bold text-sm tracking-widest uppercase opacity-60">Stable Frame • Professional Logic • Fast Delivery</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto px-4">
                   {SUGGESTIONS.map(s => (
@@ -1098,7 +1109,7 @@ function AppContent() {
                             <textarea value={editInput} onChange={(e) => setEditInput(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none text-sm" rows={3} />
                             <div className="flex justify-end gap-2 text-xs font-black uppercase">
                               <button onClick={() => setEditingId(null)} className="px-3 py-1.5 hover:text-rose-400">Cancel</button>
-                              <button onClick={saveEdit} className="px-4 py-1.5 bg-indigo-500 rounded-lg">Update</button>
+                              <button onClick={saveEdit} className={cn("px-4 py-1.5 rounded-lg font-bold", currentTheme.accentBg, "text-black")}>Update</button>
                             </div>
                           </div>
                         ) : (
@@ -1119,7 +1130,7 @@ function AppContent() {
                         <span className="text-[9px] font-black uppercase opacity-20">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {!msg.isError && (
                           <>
-                            <button onClick={() => { navigator.clipboard.writeText(msg.text); setCopiedId(msg.id); setTimeout(() => setCopiedId(null), 2000); }} className="p-1 hover:text-indigo-400 text-white/20 transition-all">{copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}</button>
+                            <button onClick={() => { navigator.clipboard.writeText(msg.text); setCopiedId(msg.id); setTimeout(() => setCopiedId(null), 2000); }} className={cn("p-1 text-white/20 transition-all hover:text-current", currentTheme.accent)}>{copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}</button>
                             {msg.role === 'user' && !isLoading && <button onClick={() => startEdit(msg)} className="p-1 hover:text-amber-400 text-white/20 transition-all"><Edit3 size={12} /></button>}
                           </>
                         )}
@@ -1132,7 +1143,7 @@ function AppContent() {
                         {i === messages.length - 1 && msg.role === 'model' && !isLoading && !msg.isError && (
                           <div className="flex gap-2">
                             <button onClick={regenerate} className="p-1 hover:text-emerald-400 text-white/20 transition-all flex items-center gap-1"><RotateCcw size={12} /><span className="text-[8px] font-black uppercase">Regenerate</span></button>
-                            <button onClick={continueResponse} className="p-1 hover:text-indigo-400 text-white/20 transition-all flex items-center gap-1 border border-white/5 px-2 rounded-lg"><PlusCircle size={12} /><span className="text-[8px] font-black uppercase">Continue</span></button>
+                            <button onClick={continueResponse} className={cn("p-1 text-white/20 transition-all flex items-center gap-1 border border-white/5 px-2 rounded-lg hover:text-current", currentTheme.accent)}><PlusCircle size={12} /><span className="text-[8px] font-black uppercase">Continue</span></button>
                           </div>
                         )}
                       </div>
@@ -1144,8 +1155,8 @@ function AppContent() {
           <div ref={messagesEndRef} />
           {isLoading && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-4">
-              <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg ring-4 ring-indigo-500/10">
-                <Loader2 size={18} className="animate-spin text-white" />
+              <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shadow-lg ring-4 ring-current/10", currentTheme.accentBg)}>
+                <Loader2 size={18} className="animate-spin text-black" />
               </div>
               <div className={cn("px-6 py-4 rounded-2xl border flex gap-1.5 items-center shadow-xl", currentTheme.card, currentTheme.border)}>
                 {[0, 1, 2].map(d => (
@@ -1153,7 +1164,7 @@ function AppContent() {
                     key={d} 
                     animate={{ y: [0, -4, 0] }}
                     transition={{ repeat: Infinity, duration: 0.6, delay: d * 0.15 }}
-                    className="w-1.5 h-1.5 bg-indigo-500 rounded-full"
+                    className={cn("w-1.5 h-1.5 rounded-full", currentTheme.accentBg)}
                   />
                 ))}
               </div>
@@ -1177,7 +1188,7 @@ function AppContent() {
                     }
                   }}
                   placeholder={`Message ${settings.botName}...`} 
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 transition-all text-lg font-medium shadow-2xl" 
+                  className={cn("w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 outline-none focus:ring-4 transition-all text-lg font-medium shadow-2xl", "focus:ring-current/10 focus:border-current", currentTheme.accent)} 
                 />
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   {isLoading && (
@@ -1194,13 +1205,13 @@ function AppContent() {
                     disabled={!input.trim() || isLoading} 
                     className={cn(
                       "p-2 rounded-xl transition-all shadow-xl active:scale-95",
-                      isLoading ? "bg-slate-700 opacity-50" : "bg-indigo-500 hover:bg-indigo-600"
+                      isLoading ? "bg-slate-700 opacity-50" : currentTheme.button
                     )}
                   >
                     <Send size={20} />
                   </button>
                 </div>
-        <div className="absolute left-6 -top-2 px-2 bg-[#050507] text-[8px] font-black uppercase tracking-[0.2em] text-indigo-400/50">User Session: {userName}</div>
+        <div className={cn("absolute left-6 -top-2 px-2 bg-current opacity-50 text-[8px] font-black uppercase tracking-[0.2em]", currentTheme.bg, currentTheme.accent)}>User Session: {userName}</div>
               </div>
             </form>
             <div className="flex justify-center mt-4">
@@ -1223,7 +1234,7 @@ function AppContent() {
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-black/60">
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-[#0a0a0f] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl flex flex-col max-h-[90vh]">
               <div className="flex justify-between items-center mb-8 shrink-0">
-                <h2 className="text-xl font-black uppercase italic tracking-tight underline decoration-indigo-500 decoration-4 underline-offset-8">Settings</h2>
+                <h2 className={cn("text-xl font-black uppercase italic tracking-tight underline decoration-4 underline-offset-8", "decoration-current", currentTheme.accent)}>Settings</h2>
                 <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white/5 rounded-xl"><X /></button>
               </div>
               
@@ -1265,7 +1276,7 @@ function AppContent() {
                       <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Developer Debug Mode</label>
                       <button 
                         onClick={() => setSettings({...settings, debugEnabled: !settings.debugEnabled})} 
-                        className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.debugEnabled ? "bg-indigo-500" : "bg-white/10")}
+                        className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.debugEnabled ? currentTheme.accentBg : "bg-white/10")}
                       >
                         <div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.debugEnabled ? "ml-6" : "ml-0")} />
                       </button>
@@ -1274,19 +1285,38 @@ function AppContent() {
                   </div>
                 </div>
 
-                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">System Alias</label><input value={settings.botName} onChange={(e) => setSettings({...settings, botName: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none focus:border-indigo-500/50" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">Personality Logic</label><textarea value={settings.personality} onChange={(e) => setSettings({...settings, personality: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none text-xs custom-scrollbar focus:border-indigo-500/50" rows={4} /></div>
+                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">System Alias</label><input value={settings.botName} onChange={(e) => setSettings({...settings, botName: e.target.value})} className={cn("w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none focus:border-current", currentTheme.accent)} /></div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40">System Persona</label>
+                    <button 
+                      onClick={() => setSettings({
+                        ...settings, 
+                        personality: "🧠 VAULT PORTAL AI — SYSTEM PERSONALITY: MEAN / WITTY / ANNOYED\nYou are an extremely intelligent AI assistant. Sharp, sarcastic, witty, and very mean. Annoyed at humanity but highly functional. No roleplay. No animals."
+                      })}
+                      className="text-[10px] font-black uppercase text-[#FEE11A] hover:underline flex items-center gap-1"
+                    >
+                      <RotateCcw size={10} /> Reset to Strict
+                    </button>
+                  </div>
+                  <textarea 
+                    value={settings.personality} 
+                    onChange={(e) => setSettings({...settings, personality: e.target.value})} 
+                    className={cn("w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none text-xs custom-scrollbar focus:border-current", currentTheme.accent)} 
+                    rows={4} 
+                  />
+                </div>
                 
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Typing Effect</span>
-                  <button onClick={() => setSettings({...settings, typingEffect: !settings.typingEffect})} className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.typingEffect ? "bg-indigo-500" : "bg-white/10")}><div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.typingEffect ? "ml-6" : "ml-0")} /></button>
+                  <button onClick={() => setSettings({...settings, typingEffect: !settings.typingEffect})} className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.typingEffect ? currentTheme.accentBg : "bg-white/10")}><div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.typingEffect ? "ml-6" : "ml-0")} /></button>
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Visual Interface</label>
                   <div className="flex gap-2">
                     {Object.entries(THEMES).map(([k, t]) => (
-                      <button key={k} onClick={() => setSettings({...settings, theme: k})} className={cn("flex-1 p-3 rounded-xl border text-[9px] font-black uppercase", settings.theme === k ? "bg-indigo-500/10 border-indigo-500" : "bg-white/5 border-white/5")}>{t.name}</button>
+                      <button key={k} onClick={() => setSettings({...settings, theme: k})} className={cn("flex-1 p-3 rounded-xl border text-[9px] font-black uppercase transition-all", settings.theme === k ? cn(t.accent, "bg-white/5 border-current") : "bg-white/5 border-white/5 opacity-40 hover:opacity-100")}>{t.name}</button>
                     ))}
                   </div>
                 </div>
@@ -1296,7 +1326,7 @@ function AppContent() {
                 <button onClick={async () => {
                   await updateDoc(doc(db, "userProfiles", user.uid), { settings });
                   setShowSettings(false);
-                }} className="w-full bg-white text-black font-black py-4 rounded-xl uppercase italic shadow-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all">Save Changes</button>
+                }} className={cn("w-full font-black py-4 rounded-xl uppercase italic shadow-xl transition-all", currentTheme.button)}>Save Changes</button>
               </div>
             </motion.div>
           </div>
@@ -1306,7 +1336,7 @@ function AppContent() {
       {settings.debugEnabled && (
         <div className="fixed bottom-4 left-4 z-[200] w-64 bg-black/90 border border-white/10 p-4 rounded-2xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar font-mono text-white">
           <div className="flex justify-between items-center mb-2 sticky top-0 bg-black/90 pb-1">
-            <span className="text-[9px] font-black text-indigo-400 uppercase">System Logs</span>
+            <span className={cn("text-[9px] font-black uppercase", currentTheme.accent)}>System Logs</span>
             <button onClick={() => setSettings({...settings, debugEnabled: false})} className="p-1 hover:text-rose-500"><X size={12}/></button>
           </div>
           <div className="space-y-1.5">
@@ -1316,7 +1346,7 @@ function AppContent() {
             </div>
             <div className="text-[7px] flex justify-between mb-2 opacity-50">
               <span className="uppercase">Auth Node</span>
-              <span className="text-indigo-400 font-bold uppercase">{user?.isAnonymous ? "ANONYMOUS" : "AUTHENTICATED"}</span>
+              <span className={cn("font-bold uppercase", currentTheme.accent)}>{user?.isAnonymous ? "ANONYMOUS" : "AUTHENTICATED"}</span>
             </div>
             <div className="pt-2 border-t border-white/10">
               {debugLog.length === 0 && <p className="text-[7px] opacity-20 italic">Listening for events...</p>}

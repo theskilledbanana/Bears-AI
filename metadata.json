@@ -1,6 +1,6 @@
 {
-  "name": "Unlimited and Unrestricted AI",
-  "description": "Professional-grade AI with zero filters, persistent cloud history, pinning features, and multi-chat support. Fast, secure, and 100% free.",
+  "name": "Vault Portal AI",
+  "description": "Stable and responsive system assistant with minimal fluff and high-performance intelligence. Features persistent history, pinning, and multi-chat support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
